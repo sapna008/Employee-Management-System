@@ -6,7 +6,6 @@ export function Navbar({ user, showNotifications, setShowNotifications }) {
     const navigate = useNavigate();
 
     const handleLogout = () => {
-        // Add any logout logic here (clear tokens, etc)
         navigate('/login');
     };
 

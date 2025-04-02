@@ -14,7 +14,6 @@ export function LoginForm({ onLogin, onNavigate }) {
       const response = await fetch('https://hackathon-bf312-default-rtdb.firebaseio.com/employees.json');
       const data = await response.json();
       
-      // Check if the employee exists in the data
       const employeeExists = Object.values(data).some(
         employee => employee.name.toLowerCase() === name.toLowerCase()
       );
@@ -26,9 +25,11 @@ export function LoginForm({ onLogin, onNavigate }) {
     }
   };
 
+
+  
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(''); // Reset error state
+    setError(''); 
 
     if (formData.role === 'employee') {
       const isValidEmployee = await validateEmployee(formData.name);
@@ -39,7 +40,6 @@ export function LoginForm({ onLogin, onNavigate }) {
       }
     }
 
-    // If validation passes or role is employer, proceed with login
     onLogin(formData);
     if (onNavigate) {
       onNavigate(`/dashboard/${formData.role}`);
