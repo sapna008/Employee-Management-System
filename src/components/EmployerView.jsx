@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Users, UserPlus, UserCircle, X, LogOut } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Users, UserPlus, UserCircle, X, LogOut, Trash2, Upload } from 'lucide-react';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
 import { useLocation } from "react-router-dom";
 
 export function EmployerView({ user }) {
   const location = useLocation();
+  const fileInputRef = useRef(null);
 
   let dashboardTitle = "Dashboard";
   if (location.pathname === "/dashboard/employer") {
@@ -13,18 +13,20 @@ export function EmployerView({ user }) {
   } else if (location.pathname === "/dashboard/employee") {
     dashboardTitle = "Employee Dashboard";
   }
-  const navigate = useNavigate();
 
   const [tasks, setTasks] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [showViewEmployees, setShowViewEmployees] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
   const [employeeData, setEmployeeData] = useState({
     name: '',
     department: 'Development',
     email: '',
-    joinDate: new Date().toISOString().split('T')[0]
+    joinDate: new Date().toISOString().split('T')[0],
+    imageUrl: ''
   });
   const [taskData, setTaskData] = useState({
     taskName: '',
@@ -38,6 +40,9 @@ export function EmployerView({ user }) {
     supportingLinks: '',
     status: 'pending'
   });
+
+  const CLOUDINARY_UPLOAD_PRESET = 'employee management system';
+  const CLOUDINARY_CLOUD_NAME = 'dqneqoigw';
 
   useEffect(() => {
     fetchEmployees();
@@ -74,22 +79,86 @@ export function EmployerView({ user }) {
     }
   };
 
+  const uploadImageToCloudinary = async (file) => {
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+    try {
+      const response = await axios.post(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+        formData
+      );
+      setIsUploading(false);
+      return response.data.secure_url;
+    } catch (error) {
+      console.error('Error uploading image to Cloudinary:', error);
+      setIsUploading(false);
+      alert('Failed to upload image');
+      return null;
+    }
+  };
+
+  const handleImageChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setSelectedImage(URL.createObjectURL(file));
+      employeeData.imageFile = file;
+    }
+  };
+
   const handleEmployeeSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('https://hackathon-bf312-default-rtdb.firebaseio.com/employees.json', employeeData);
+      let imageUrl = employeeData.imageUrl;
+      if (employeeData.imageFile) {
+        imageUrl = await uploadImageToCloudinary(employeeData.imageFile);
+        if (!imageUrl) return; 
+      }
+
+      const employeeDataToSave = { ...employeeData, imageUrl };
+      delete employeeDataToSave.imageFile;
+
+      await axios.post('https://hackathon-bf312-default-rtdb.firebaseio.com/employees.json', employeeDataToSave);
       alert('Employee added successfully!');
       setEmployeeData({
         name: '',
         department: 'Development',
         email: '',
-        joinDate: new Date().toISOString().split('T')[0]
+        joinDate: new Date().toISOString().split('T')[0],
+        imageUrl: ''
       });
+      setSelectedImage(null);
       setShowEmployeeForm(false);
       fetchEmployees();
     } catch (error) {
       console.error('Error adding employee:', error);
       alert('Failed to add employee');
+    }
+  };
+
+  const handleRemoveEmployee = async (employeeId) => {
+    if (window.confirm('Are you sure you want to remove this employee?')) {
+      try {
+        await axios.delete(`https://hackathon-bf312-default-rtdb.firebaseio.com/employees/${employeeId}.json`);
+        
+        const employeeToRemove = employees.find(emp => emp.id === employeeId);
+        if (employeeToRemove) {
+          const tasksToUpdate = tasks.filter(task => task.assignedTo === employeeToRemove.name);
+          
+          for (const task of tasksToUpdate) {
+            await axios.delete(`https://hackathon-bf312-default-rtdb.firebaseio.com/tasks/${task.id}.json`);
+          }
+        }
+        
+        alert('Employee removed successfully!');
+        fetchEmployees();
+        fetchTasks();
+      } catch (error) {
+        console.error('Error removing employee:', error);
+        alert('Failed to remove employee');
+      }
     }
   };
 
@@ -123,7 +192,7 @@ export function EmployerView({ user }) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-600/10 bg-cover bg-center bg-no-repeat">
+    <div className="min-h-screen bg-gray-600/10">
       {/* Navbar */}
       <nav className="bg-gray-500/30 shadow-md fixed w-full z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -142,7 +211,7 @@ export function EmployerView({ user }) {
               </div>
               <a
                 href="/"
-                className="flex items-center px-4 py-2 bg-transparent hover:bg-gray-700 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors"
+                className="flex items-center px-4 py-2 bg-transparent hover:bg-gray-700 text-white rounded-md focus:outline-none transition-colors"
               >
                 <LogOut className="h-5 w-5 mr-2 text-white/90 hover:text-gray-400 transition-colors" />
               </a>
@@ -165,7 +234,7 @@ export function EmployerView({ user }) {
 
             {/* Dashboard Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Team Management Card */}
+
               <div
                 onClick={() => setShowEmployeeForm(true)}
                 className="group hover:scale-105 transition-all duration-300 cursor-pointer"
@@ -229,6 +298,37 @@ export function EmployerView({ user }) {
                   </div>
                   <div className="p-6">
                     <form onSubmit={handleEmployeeSubmit} className="space-y-6">
+                      <div className="flex justify-center mb-6">
+                        <div className="relative group">
+                          <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-gray-700 group-hover:border-blue-500 transition-all duration-300">
+                            {selectedImage ? (
+                              <img
+                                src={selectedImage}
+                                alt="Employee preview"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gray-800 flex items-center justify-center">
+                                <UserCircle className="w-20 h-20 text-gray-500" />
+                              </div>
+                            )}
+                          </div>
+                          <div
+                            onClick={() => fileInputRef.current.click()}
+                            className="absolute bottom-0 right-0 bg-blue-500 hover:bg-blue-600 rounded-full p-2 cursor-pointer shadow-lg"
+                          >
+                            <Upload className="w-4 h-4 text-white" />
+                          </div>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleImageChange}
+                          />
+                        </div>
+                      </div>
+                      
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                           <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -237,7 +337,7 @@ export function EmployerView({ user }) {
                           <input
                             type="text"
                             required
-                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white"
+                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white"
                             value={employeeData.name}
                             onChange={(e) => setEmployeeData({ ...employeeData, name: e.target.value })}
                           />
@@ -248,7 +348,7 @@ export function EmployerView({ user }) {
                           </label>
                           <select
                             required
-                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white"
+                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white"
                             value={employeeData.department}
                             onChange={(e) => setEmployeeData({ ...employeeData, department: e.target.value })}
                           >
@@ -264,7 +364,7 @@ export function EmployerView({ user }) {
                           <input
                             type="email"
                             required
-                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white"
+                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white"
                             value={employeeData.email}
                             onChange={(e) => setEmployeeData({ ...employeeData, email: e.target.value })}
                           />
@@ -276,7 +376,7 @@ export function EmployerView({ user }) {
                           <input
                             type="date"
                             required
-                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white"
+                            className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white"
                             value={employeeData.joinDate}
                             onChange={(e) => setEmployeeData({ ...employeeData, joinDate: e.target.value })}
                           />
@@ -292,9 +392,12 @@ export function EmployerView({ user }) {
                         </button>
                         <button
                           type="submit"
-                          className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white rounded-xl transition-all duration-300 shadow-lg hover:shadow-blue-500/25"
+                          disabled={isUploading}
+                          className={`px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 ${
+                            isUploading ? 'opacity-70 cursor-not-allowed' : 'hover:from-blue-600 hover:to-purple-600'
+                          } text-white rounded-xl transition-all duration-300 shadow-lg hover:shadow-blue-500/25`}
                         >
-                          Add Employee
+                          {isUploading ? 'Uploading...' : 'Add Employee'}
                         </button>
                       </div>
                     </form>
@@ -333,19 +436,28 @@ export function EmployerView({ user }) {
                               >
                                 <div className="flex items-center space-x-3">
                                   <img
-                                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                    src={employee.imageUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(
                                       employee.name
                                     )}&background=random`}
                                     alt={employee.name}
-                                    className="w-12 h-12 rounded-full"
+                                    className="w-12 h-12 rounded-full object-cover"
                                   />
-                                  <div>
+                                  <div className="flex-1">
                                     <h4 className="text-white font-medium">{employee.name}</h4>
                                     <p className="text-gray-400 text-sm">{employee.email}</p>
                                     <p className="text-gray-400 text-sm">
                                       Joined: {new Date(employee.joinDate).toLocaleDateString()}
                                     </p>
                                   </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveEmployee(employee.id);
+                                    }}
+                                    className="p-2 bg-red-500/10 hover:bg-red-500/30 rounded-full transition-colors"
+                                  >
+                                    <Trash2 className="w-5 h-5 text-red-400" />
+                                  </button>
                                 </div>
                               </div>
                             ))}
@@ -361,7 +473,6 @@ export function EmployerView({ user }) {
             {showTaskForm && (
               <div className="fixed inset-0 z-50 overflow-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
                 <div className="bg-gray-600/20 backdrop-blur-md rounded-2xl w-full max-w-3xl border border-gray-700/50 shadow-2xl">
-                  {/* Modal Header */}
                   <div className="flex justify-between items-center p-6 border-b border-gray-700/50">
                     <h2 className="text-2xl font-semibold text-white">Assign New Task</h2>
                     <button
@@ -372,12 +483,10 @@ export function EmployerView({ user }) {
                     </button>
                   </div>
 
-                  {/* Scrollable Form Container */}
                   <div className="max-h-[60vh] overflow-y-auto">
                     <div className="p-6">
                       <form onSubmit={handleSubmit} className="space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {/* Form fields */}
                           <div>
                             <label className="block text-sm font-medium text-gray-300 mb-2">
                               Task Name
@@ -385,7 +494,7 @@ export function EmployerView({ user }) {
                             <input
                               type="text"
                               required
-                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white placeholder-gray-400"
+                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white placeholder-gray-400"
                               value={taskData.taskName}
                               onChange={(e) => setTaskData({ ...taskData, taskName: e.target.value })}
                             />
@@ -397,7 +506,7 @@ export function EmployerView({ user }) {
                             </label>
                             <select
                               required
-                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white"
+                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white"
                               value={taskData.assignedTo}
                               onChange={(e) => setTaskData({ ...taskData, assignedTo: e.target.value })}
                             >
@@ -415,7 +524,7 @@ export function EmployerView({ user }) {
                               Task Type
                             </label>
                             <select
-                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white"
+                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white"
                               value={taskData.taskType}
                               onChange={(e) => setTaskData({ ...taskData, taskType: e.target.value })}
                             >
@@ -430,7 +539,7 @@ export function EmployerView({ user }) {
                               Priority Level
                             </label>
                             <select
-                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white"
+                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white"
                               value={taskData.priority}
                               onChange={(e) => setTaskData({ ...taskData, priority: e.target.value })}
                             >
@@ -446,7 +555,7 @@ export function EmployerView({ user }) {
                               Difficulty Level
                             </label>
                             <select
-                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white"
+                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white"
                               value={taskData.difficulty}
                               onChange={(e) => setTaskData({ ...taskData, difficulty: e.target.value })}
                             >
@@ -465,7 +574,7 @@ export function EmployerView({ user }) {
                               min="0"
                               step="0.5"
                               required
-                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white"
+                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white"
                               value={taskData.estimatedTime}
                               onChange={(e) => setTaskData({ ...taskData, estimatedTime: e.target.value })}
                             />
@@ -477,7 +586,7 @@ export function EmployerView({ user }) {
                             </label>
                             <input
                               type="text"
-                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white placeholder-gray-400"
+                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white placeholder-gray-400"
                               value={user.name}
                               onChange={(e) => setTaskData({ ...taskData, reference: e.target.value })}
                               placeholder="Name of manager or colleague who requested this task"
@@ -491,7 +600,7 @@ export function EmployerView({ user }) {
                             <textarea
                               required
                               rows={4}
-                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white placeholder-gray-400"
+                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white placeholder-gray-400"
                               value={taskData.description}
                               onChange={(e) => setTaskData({ ...taskData, description: e.target.value })}
                             />
@@ -503,7 +612,7 @@ export function EmployerView({ user }) {
                             </label>
                             <textarea
                               rows={3}
-                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white placeholder-gray-400"
+                              className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-xl focus:border-blue-500 focus:ring-1 text-white placeholder-gray-400"
                               value={taskData.supportingLinks}
                               onChange={(e) => setTaskData({ ...taskData, supportingLinks: e.target.value })}
                               placeholder="Add relevant links to documents, emails, or resources (one per line)"
@@ -511,7 +620,6 @@ export function EmployerView({ user }) {
                           </div>
                         </div>
 
-                        {/* Button Container */}
                         <div className="flex justify-end space-x-4 pt-4">
                           <button
                             type="button"
